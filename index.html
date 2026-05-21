@@ -135,7 +135,8 @@
     let questionStartTime = 0;
 
     // CHANGE THIS URL TO YOUR ACTUAL DEPLOYED MOBILE PATH
-    const mobileUrl = window.location.href.replace("index.html", "") + "mobile.html";
+    // REPLACED WITH YOUR OFFICIAL MOBILE URL
+    const mobileUrl = "https://antoto.github.io/Mandela-Commonwealth-Quiz/mobile.html"; 
     new QRCode(document.getElementById("qrcode"), { text: mobileUrl, width: 220, height: 220 });
 
     setTimeout(() => {
