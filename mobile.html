@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mandela Quiz - Controller</title>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, set, onValue, update, get, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyB-nqrLpT4OFCCD3NLf59bufX_kYiOANyY",
+            authDomain: "mandela-358b1.firebaseapp.com",
+            databaseURL: "https://mandela-358b1-default-rtdb.firebaseio.com",
+            projectId: "mandela-358b1",
+            storageBucket: "mandela-358b1.firebasestorage.app",
+            messagingSenderId: "290462351698",
+            appId: "1:290462351698:web:d3ef106050f7e51e293a8b"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        window.db = db; window.dbRef = ref; window.dbSet = set; window.dbOnValue = onValue; window.dbUpdate = update; window.dbGet = get; window.dbRemove = remove;
+    </script>
+    <style>
+        :root {
+            --bg: #f5f5f5;
+            --red: #E03C31; --blue: #001489; --gold: #FFB81C; --cyan: #007A87;
+        }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); margin: 0; padding: 20px; text-align: center; }
+        .screen { display: none; }
+        .active { display: block; }
+        input { padding: 15px; font-size: 18px; width: 85%; max-width: 300px; margin-bottom: 15px; border: 2px solid #ccc; border-radius: 8px; }
+        .btn { background: #114B3E; color: white; border: none; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; text-transform: uppercase;}
+        
+        .pad-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; height: 75vh; margin-top: 15px; }
+        .pad-btn { border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 6px rgba(0,0,0,0.2); }
+        .pad-btn:active { transform: translateY(4px); box-shadow: 0 2px rgba(0,0,0,0.2); }
+        .btn-0 { background: var(--red); } .btn-1 { background: var(--blue); } .btn-2 { background: var(--gold); } .btn-3 { background: var(--cyan); }
+        
+        .status-msg { font-size: 26px; color: #333; margin-top: 30vh; font-weight: bold; padding: 0 10px; }
+        .score-feed { font-size: 18px; margin-top: 15px; color: #666; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: inline-block; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="screen active">
+        <h2 style="color:#114B3E; font-size: 32px; margin-bottom:5px;">Mandela Quiz</h2>
+        <p style="color:#666; margin-top:0;">Enter your username to play</p>
+        <input type="text" id="username-input" placeholder="Your Name..." maxlength="12"><br>
+        <button class="btn" onclick="joinLobby()">Join Game</button>
+    </div>
+
+    <div id="wait-screen" class="screen">
+        <div class="status-msg" id="wait-title">Connected! 👍</div>
+        <div id="personal-feedback" class="score-feed" style="display:none;"></div>
+    </div>
+
+    <div id="pad-screen" class="screen">
+        <div class="pad-grid">
+            <button class="pad-btn btn-0" onclick="submitAnswer(0)"></button>
+            <button class="pad-btn btn-1" onclick="submitAnswer(1)"></button>
+            <button class="pad-btn btn-2" onclick="submitAnswer(2)"></button>
+            <button class="pad-btn btn-3" onclick="submitAnswer(3)"></button>
+        </div>
+    </div>
+
+<script>
+    let playerId = '';
+    let myName = '';
+    let currentQIndex = -1;
+    let hasAnswered = false;
+    let qReceivedTime = 0;
+    
+    const correctAnswers = [1, 0, 2, 1, 2, 2, 1, 0, 2, 1];
+
+    function joinLobby() {
+        const input = document.getElementById("username-input").value.trim();
+        if(input === "") return alert("Please enter a valid nickname!");
+        
+        myName = input;
+        playerId = 'player_' + Math.random().toString(36).substr(2, 9);
+        
+        window.dbSet(window.dbRef(window.db, 'players/' + playerId), {
+            id: playerId, name: myName, score: 0
+        });
+
+        showScreen("wait-screen");
+        document.getElementById("wait-title").innerHTML = `You are in! 🇿🇦<br><span style='font-size:16px; color:#666;'>Look at the big screen...</span>`;
+        
+        // Listen to host disconnection or getting kicked
+        window.dbOnValue(window.dbRef(window.db, 'players/' + playerId), (snapshot) => {
+            if(!snapshot.exists() && myName !== '') {
+                alert("You have been removed from the lobby by the host.");
+                location.reload();
+            }
+        });
+
+        listenToSystem();
+    }
+
+    function listenToSystem() {
+        window.dbOnValue(window.dbRef(window.db, 'gameState'), (snapshot) => {
+            const state = snapshot.val();
+            if(!state) return;
+
+            if(state.status === "lobby") {
+                showScreen("wait-screen");
+            } 
+            else if (state.status === "playing") {
+                if(state.currentQ !== currentQIndex) {
+                    currentQIndex = state.currentQ;
+                    hasAnswered = false;
+                    qReceivedTime = Date.now(); 
+                    showScreen("pad-screen");
+                }
+                if(state.showAnswers) {
+                    showFeedbackScreen();
+                }
+            } 
+            else if (state.status === "ended") {
+                showScreen("wait-screen");
+                document.getElementById("wait-title").innerHTML = `Game Over! 🏁<br><span style='font-size:18px;'>Check out the final podium!</span>`;
+                document.getElementById("personal-feedback").style.display = "none";
+            }
+        });
+    }
+
+    function submitAnswer(chosenIndex) {
+        if(hasAnswered) return;
+        hasAnswered = true;
+        
+        let timeTaken = (Date.now() - qReceivedTime) / 1000; 
+        showScreen("wait-screen");
+        document.getElementById("wait-title").innerHTML = `Answer Submitted!<br><span style='font-size:16px; color:#666;'>Waiting for time to run out...</span>`;
+        document.getElementById("personal-feedback").style.display = "none";
+
+        if(chosenIndex === correctAnswers[currentQIndex]) {
+            // Kahoot score engine formula: up to 1000 points, losing points over time down to a 400 point floor
+            let points = Math.round(1000 - (timeTaken * 30)); 
+            if(points < 400) points = 400; 
+
+            const pRef = window.dbRef(window.db, 'players/' + playerId);
+            window.dbGet(pRef).then((snap) => {
+                if(snap.exists()) {
+                    let oldScore = snap.val().score || 0;
+                    window.dbUpdate(pRef, { score: oldScore + points });
+                }
+            });
+        }
+    }
+
+    function showFeedbackScreen() {
+        showScreen("wait-screen");
+        document.getElementById("wait-title").innerText = "Question Finished";
+        
+        // Fetch all players to calculate custom dynamic distance tracking
+        window.dbGet(window.dbRef(window.db, 'players')).then((snapshot) => {
+            let allPlayers = snapshot.val() || {};
+            let sorted = Object.keys(allPlayers).map(id => allPlayers[id]).sort((a,b) => b.score - a.score);
+            
+            let myRankIndex = sorted.findIndex(p => p.id === playerId);
+            let myCurrentScore = sorted[myRankIndex] ? sorted[myRankIndex].score : 0;
+            
+            let feedBox = document.getElementById("personal-feedback");
+            feedBox.style.display = "block";
+
+            if (myRankIndex === 0) {
+                feedBox.innerHTML = `⭐ <strong>You are in 1st Place!</strong><br>Score: ${myCurrentScore} pts. Keep pushing!`;
+                feedBox.style.borderColor = "var(--gold)";
+            } else if (myRankIndex > 0) {
+                let playerAhead = sorted[myRankIndex - 1];
+                let pointsBehind = playerAhead.score - myCurrentScore;
+                feedBox.innerHTML = `🏅 <strong>Rank: #${myRankIndex + 1}</strong> — ${myCurrentScore} pts<br>You are <strong>${pointsBehind} pts</strong> behind <strong>${playerAhead.name}</strong>!`;
+                feedBox.style.borderColor = "var(--cyan)";
+            }
+        });
+    }
+
+    function showScreen(id) {
+        document.getElementById("login-screen").classList.remove("active");
+        document.getElementById("wait-screen").classList.remove("active");
+        document.getElementById("pad-screen").classList.remove("active");
+        document.getElementById(id).classList.add("active");
+    }
+</script>
+</body>
+</html>
